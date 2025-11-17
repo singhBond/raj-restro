@@ -289,7 +289,7 @@ const AdminPanel: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-yellow-50">
-            Admin Panel - #WTF
+            Admin Panel - Raj Restaurant
           </h1>
           <Button
             variant="ghost"

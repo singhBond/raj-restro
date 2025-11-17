@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Food Catalogue",
-  description: "Food Items Listing Catalogue",
+  title: "Raj Family Restaurant",
+  description: "Order Breakfast , Chinese , Foods",
 };
 
 export default function RootLayout({

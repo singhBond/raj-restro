@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 
-const HARDCODED = { username: "admin", password: "foodcat123" };
+const HARDCODED = { username: "admin", password: "rajrestro123" };
 
 export default function AdminLogin() {
   const router = useRouter();
