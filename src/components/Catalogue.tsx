@@ -373,7 +373,7 @@ const FastFoodCatalogue: React.FC = () => {
   // Full page loader while categories load
   if (loadingCategories) {
     return (
-      <section className="min-h-screen bg-gradient-to-b from-yellow-100 to-white flex flex-col items-center justify-center">
+      <section className="min-h-screen bg-linear-to-b from-yellow-100 to-white flex flex-col items-center justify-center">
         <div className="text-center">
           <div className="w-20 h-20 border-8 border-yellow-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="mt-6 text-xl font-semibold text-gray-700">Loading menu...</p>
