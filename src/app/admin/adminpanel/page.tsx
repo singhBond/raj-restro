@@ -392,8 +392,8 @@ const AdminPanel: React.FC = () => {
   );
 };
 
-/* ==================== Dialogs (unchanged) ==================== */
-/* ---- Add Category ---- */
+/* ==================== Dialogs ==================== */
+/* ---- Add Category (Image REQUIRED) ---- */
 const AddCategoryDialog: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -413,10 +413,18 @@ const AddCategoryDialog: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!name.trim()) {
+      alert("Category name is required.");
+      return;
+    }
+    if (!image) {
+      alert("Category image is required.");
+      return;
+    }
     try {
       await addDoc(collection(db, "categories"), {
-        name: name.trim() ? formatName(name) : undefined,
-        imageUrl: image || "",
+        name: formatName(name),
+        imageUrl: image,
         createdAt: serverTimestamp(),
       });
       setOpen(false);
@@ -446,7 +454,7 @@ const AddCategoryDialog: React.FC = () => {
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label htmlFor="cat-name">Name</Label>
+            <Label htmlFor="cat-name">Name *</Label>
             <Input
               id="cat-name"
               value={name}
@@ -455,14 +463,14 @@ const AddCategoryDialog: React.FC = () => {
             />
           </div>
           <div>
-            <Label htmlFor="cat-image">Image (auto-compressed less than 500 KB)</Label>
-            <Input id="cat-image" type="file" accept="image/*" onChange={handleImage} />
+            <Label htmlFor="cat-image">Category Image * (required)</Label>
+            <Input id="cat-image" type="file" accept="image/*" onChange={handleImage} required />
             {preview && (
               <div className="mt-3">
                 <img
                   src={preview}
                   alt="Preview"
-                  className="w-full h-40 object-cover rounded-lg"
+                  className="w-full h-40 object-cover rounded-lg border-2 border-green-500"
                 />
                 <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo}</p>
               </div>
@@ -477,7 +485,7 @@ const AddCategoryDialog: React.FC = () => {
   );
 };
 
-/* ---- Edit Category ---- */
+/* ---- Edit Category (Image REQUIRED) ---- */
 interface EditCategoryDialogProps {
   category: Category;
 }
@@ -500,10 +508,18 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
   };
 
   const handleSave = async () => {
+    if (!name.trim()) {
+      alert("Category name is required.");
+      return;
+    }
+    if (!image) {
+      alert("Category image is required.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "categories", category.id), {
-        name: name.trim() ? formatName(name) : undefined,
-        imageUrl: image || "",
+        name: formatName(name),
+        imageUrl: image,
       });
       setOpen(false);
     } catch (e) {
@@ -525,26 +541,27 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label>Name</Label>
+            <Label>Name *</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Leave blank to remove name"
+              placeholder="Category name"
             />
           </div>
           <div>
-            <Label>Image</Label>
-            <Input type="file" accept="image/*" onChange={handleImage} />
+            <Label>Category Image * (required)</Label>
             {preview && (
-              <div className="mt-3">
+              <div className="mt-2 mb-3">
                 <img
                   src={preview}
-                  alt="Preview"
-                  className="w-full h-40 object-cover rounded-lg"
+                  alt="Current preview"
+                  className="w-full h-40 object-cover rounded-lg border"
                 />
-                <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo}</p>
+                <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo || "Current image"}</p>
               </div>
             )}
+            <Input type="file" accept="image/*" onChange={handleImage} />
+            <p className="text-xs text-gray-500 mt-1">Upload new image to replace current one</p>
           </div>
         </div>
         <DialogFooter>
@@ -555,7 +572,7 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
   );
 };
 
-/* ---- Add Product Dialog ---- */
+/* ---- Add Product Dialog (unchanged) ---- */
 interface AddProductDialogProps {
   categoryId: string;
 }
@@ -694,8 +711,7 @@ const AddProductDialog: React.FC<AddProductDialogProps> = ({ categoryId }) => {
                   <div key={i} className="relative group">
                     <img
                       src={src}
-                      alt={`Preview ${i + 1}`}
-                      className="w-full h-32 object-cover rounded-lg border"
+                      alt={`Preview ${i + 1}`} className="w-full h-32 object-cover rounded-lg border"
                     />
                     <button
                       onClick={(e) => {
@@ -749,7 +765,7 @@ const AddProductDialog: React.FC<AddProductDialogProps> = ({ categoryId }) => {
   );
 };
 
-/* ---- Edit Product Dialog ---- */
+/* ---- Edit Product Dialog (unchanged) ---- */
 interface EditProductDialogProps {
   categoryId: string;
   product: Product;
@@ -895,7 +911,7 @@ const EditProductDialog: React.FC<EditProductDialogProps> = ({
   );
 };
 
-/* ---- Product Row ---- */
+/* ---- Product Row (unchanged) ---- */
 interface ProductRowProps {
   categoryId: string;
   product: Product;
@@ -984,7 +1000,7 @@ const ProductRow: React.FC<ProductRowProps> = ({ categoryId, product }) => {
   );
 };
 
-/* ---- View Product Dialog ---- */
+/* ---- View Product Dialog (unchanged) ---- */
 interface ViewProductDialogProps {
   product: Product;
   onClose: () => void;
@@ -1028,7 +1044,7 @@ const ViewProductDialog: React.FC<ViewProductDialogProps> = ({ product, onClose 
   );
 };
 
-/* ---- Delete Dialog ---- */
+/* ---- Delete Dialog (unchanged) ---- */
 interface DeleteDialogProps {
   title: string;
   description: string;
