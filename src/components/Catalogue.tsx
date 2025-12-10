@@ -400,7 +400,7 @@ const FastFoodCatalogue: React.FC = () => {
     message += `\n\nPlease confirm my order.`;
 
     window.open(
-      `https://wa.me/917369068632?text=${encodeURIComponent(message)}`,
+      `https://wa.me/916200656377?text=${encodeURIComponent(message)}`,
       "_blank"
     );
 
