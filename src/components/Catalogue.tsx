@@ -216,15 +216,15 @@ const FastFoodCatalogue: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // === Load Products (per-category loading) ===
+  // === Load Products with per-category loading ===
   useEffect(() => {
     if (categories.length === 0) return;
 
     const unsubs: (() => void)[] = [];
 
     categories.forEach((cat) => {
-      // Start loading for this category
-      setLoadingProductsByCat((prev) => ({ ...prev, [cat.id]: true }));
+      // Mark this category as loading
+      setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: true }));
 
       const q = query(collection(db, "categories", cat.id, "products"));
       const unsub = onSnapshot(
@@ -254,17 +254,17 @@ const FastFoodCatalogue: React.FC = () => {
           });
 
           setProductsByCat((prev) => ({ ...prev, [cat.id]: sorted }));
-          setLoadingProductsByCat((prev) => ({ ...prev, [cat.id]: false }));
+          setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: false }));
         },
         (error) => {
           console.error(`Error fetching products for ${cat.name}:`, error);
-          setLoadingProductsByCat((prev) => ({ ...prev, [cat.id]: false }));
+          setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: false }));
         }
       );
       unsubs.push(unsub);
     });
 
-    return () => unsubs.forEach((u) => u());
+    return () => unsubs.forEach((unsub) => unsub());
   }, [categories]);
 
   // === Cart Persistence ===
@@ -444,7 +444,7 @@ const FastFoodCatalogue: React.FC = () => {
     });
   };
 
-  // Full page loader (categories)
+  // Full page loader
   if (loadingCategories) {
     return (
       <section className="min-h-screen bg-linear-to-b from-orange-50 to-white flex flex-col items-center justify-center">
@@ -459,16 +459,16 @@ const FastFoodCatalogue: React.FC = () => {
   return (
     <section className="min-h-screen bg-linear-to-b from-orange-50 to-white relative ">
       {/* Header */}
-      <div className="flex flex-col items-center text-center py-4 bg-linear-to-r from-yellow-950 via-yellow-800 to-yellow-600">
+      <div className="flex flex-col items-center text-center py-4  bg-linear-to-r from-yellow-800 via-yellow-500 to-yellow-800">
         <img src="/logo.png" className="h-20 rounded-full" alt="Logo" />
-        <h1 className="text-4xl md:text-6xl font-extrabold text-yellow-400">
-          #𝐖𝐓𝐅 𝐂𝐚𝐟𝐞’
+        <h1 className="text-3xl md:text-6xl font-extrabold text-yellow-400  ">
+          Raj Family Restaurant
         </h1>
         <h2 className="text-2xl md:text-4xl font-bold text-white mt-2">
-          𝒲𝒽𝑒𝓇𝑒’𝓈 𝓉𝒽𝑒 𝒻𝑜𝑜𝒹
+          Fast • Tasty • Fresh
         </h2>
-        <p className="text-yellow-100 max-w-2xl mt-3 text-sm md:text-lg">
-          Craving something delicious? Order now!
+        <p className="text-black max-w-2xl mt-3 text-sm md:text-lg">
+          Mob: 6200656377
         </p>
         <p className="text-yellow-50 max-w-2xl mt-1 text-xs md:text-md">
           ~Accepting Online Order : 10:00 AM - 9:00 PM~
@@ -515,18 +515,18 @@ const FastFoodCatalogue: React.FC = () => {
       {/* Layout */}
       <div className="flex flex-row w-full max-w-7xl mx-auto px-2 py-6 gap-6">
         {/* Sidebar */}
-        <aside className="w-24 sm:w-40 md:w-60 sticky top-28 h-[calc(100vh-8rem)] overflow-y-auto bg-linear-to-r from-yellow-500 to-yellow-50 border-r rounded-xl shadow-sm p-1">
+        <aside className="w-24 sm:w-40 md:w-60 sticky top-28 h-[calc(100vh-8rem)] overflow-y-auto bg-linear-to-r from-yellow-400 via-yellow-50 to-yellow-400 border-r rounded-xl shadow-sm p-1">
           {categories.map((cat) => (
             <div
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
-              className={`flex flex-col items-center cursor-pointer rounded-xl px-10 py-2 mb-2 transition-all border ${
+              className={`flex flex-col items-center cursor-pointer rounded-xl px-10 py-2 mb-2  transition-all border ${
                 activeCategory === cat.id
                   ? "bg-orange-100 border-orange-400 shadow-lg"
                   : "hover:bg-gray-50 border-transparent"
               }`}
             >
-              <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shadow-sm">
+              <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shadow-sm ">
                 <img
                   src={cat.imageUrl || "/placeholder.svg"}
                   alt={cat.name}
@@ -554,6 +554,7 @@ const FastFoodCatalogue: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {isCurrentCategoryLoading ? (
+              // Show 12 skeleton cards while loading current category
               Array(12).fill(0).map((_, i) => (
                 <Card key={`skeleton-${i}`} className="overflow-hidden rounded-2xl bg-white shadow-md">
                   <SkeletonCard />
@@ -624,7 +625,6 @@ const FastFoodCatalogue: React.FC = () => {
           </div>
         </main>
       </div>
-
 
       {/* Product Dialog */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
@@ -948,7 +948,7 @@ const FastFoodCatalogue: React.FC = () => {
       </Dialog>
 
       {/* === TOTAL VISITS COUNTER AT BOTTOM === */}
-      <div className="bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-black/70 text-white z-50 backdrop-blur-sm">
+      <div className=" bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-black/70 text-white  z-50 backdrop-blur-sm">
         <div className="flex items-center justify-center gap-3 text-sm md:text-lg font-semibold">
           <Eye className="w-5 h-5 text-yellow-400" />
           <span>Total Visits:</span>
@@ -960,7 +960,7 @@ const FastFoodCatalogue: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <footer className="bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 z-50">
+      <footer className=" bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 z-50">
         <div className="py-1 text-center text-xs text-gray-600 font-medium">
           Developed by{" "}
           <a
@@ -973,6 +973,7 @@ const FastFoodCatalogue: React.FC = () => {
           </a>
         </div>
       </footer>
+
     </section>
   );
 };
