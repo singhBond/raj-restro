@@ -2,9 +2,20 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, onSnapshot, Timestamp } from "firebase/firestore";
+import {
+  collection,
+  query,
+  onSnapshot,
+  Timestamp,
+  doc,
+  increment,
+  setDoc,
+} from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +26,12 @@ import {
   ShoppingCart,
   Plus,
   Minus,
-  CheckCircle,
   Trash2,
   ChevronLeft,
   ChevronRight,
+  Bike,
+  Store,
+  Eye,
 } from "lucide-react";
 
 // === Interfaces ===
@@ -56,7 +69,7 @@ interface Category {
   createdAt?: Timestamp;
 }
 
-// === Skeleton Components ===
+// === Skeleton Loaders ===
 const SkeletonCard = () => (
   <div className="animate-pulse">
     <div className="bg-gray-200 border-2 border-dashed rounded-xl w-full h-56" />
@@ -102,18 +115,63 @@ const DescriptionWithReadMore: React.FC<{ text: string }> = ({ text }) => {
 const FastFoodCatalogue: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [productsByCat, setProductsByCat] = useState<Record<string, Product[]>>({});
+  const [loadingProductsByCat, setLoadingProductsByCat] = useState<Record<string, boolean>>({});
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState<boolean>(false);
-  const [successOpen, setSuccessOpen] = useState<boolean>(false);
-  const [orderId, setOrderId] = useState<string>("");
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [filter, setFilter] = useState<"all" | "veg" | "nonveg">("all");
 
+  // Delivery & Order State
+  const [orderMode, setOrderMode] = useState<"offline" | "online">("offline");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryCharge, setDeliveryCharge] = useState<number>(50);
+
   // Loading States
   const [loadingCategories, setLoadingCategories] = useState(true);
-  const [loadingProducts, setLoadingProducts] = useState(true);
+
+  // === NEW: Total Page Views State ===
+  const [totalViews, setTotalViews] = useState<number>(0);
+
+  // === REAL-TIME PAGE VIEWS COUNTER (Firebase) ===
+  useEffect(() => {
+    const hasViewed = sessionStorage.getItem("hasViewedMenu");
+    if (!hasViewed) {
+      const viewsRef = doc(db, "settings", "pageViews");
+      setDoc(viewsRef, { count: increment(1) }, { merge: true }).catch(console.error);
+      sessionStorage.setItem("hasViewedMenu", "true");
+    }
+
+    const unsub = onSnapshot(doc(db, "settings", "pageViews"), (snap) => {
+      if (snap.exists() && typeof snap.data()?.count === "number") {
+        setTotalViews(snap.data().count);
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  // === DYNAMIC DELIVERY CHARGE FROM FIRESTORE ===
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, "settings", "deliveryCharge"),
+      (snap) => {
+        if (snap.exists() && typeof snap.data()?.amount === "number") {
+          setDeliveryCharge(snap.data()!.amount);
+        } else {
+          setDeliveryCharge(50);
+        }
+      },
+      (error) => {
+        console.error("Error fetching delivery charge:", error);
+        setDeliveryCharge(50);
+      }
+    );
+    return () => unsub();
+  }, []);
 
   // Reset image index
   useEffect(() => {
@@ -158,17 +216,16 @@ const FastFoodCatalogue: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // === Load Products ===
+  // === Load Products with per-category loading ===
   useEffect(() => {
-    if (categories.length === 0) {
-      setLoadingProducts(true);
-      return;
-    }
+    if (categories.length === 0) return;
 
-    setLoadingProducts(true);
     const unsubs: (() => void)[] = [];
 
     categories.forEach((cat) => {
+      // Mark this category as loading
+      setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: true }));
+
       const q = query(collection(db, "categories", cat.id, "products"));
       const unsub = onSnapshot(
         q,
@@ -197,19 +254,17 @@ const FastFoodCatalogue: React.FC = () => {
           });
 
           setProductsByCat((prev) => ({ ...prev, [cat.id]: sorted }));
+          setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: false }));
         },
         (error) => {
           console.error(`Error fetching products for ${cat.name}:`, error);
+          setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: false }));
         }
       );
       unsubs.push(unsub);
     });
 
-    const timer = setTimeout(() => setLoadingProducts(false), 800);
-    return () => {
-      clearTimeout(timer);
-      unsubs.forEach((unsub) => unsub());
-    };
+    return () => unsubs.forEach((unsub) => unsub());
   }, [categories]);
 
   // === Cart Persistence ===
@@ -299,13 +354,23 @@ const FastFoodCatalogue: React.FC = () => {
       prev.filter((i) => !(i.id === id && i.portion === portion))
     );
 
+  const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const totalAmount = orderMode === "online" ? subtotal + deliveryCharge : subtotal;
+
   const handleProceedToBuy = () => {
     if (cart.length === 0) return;
 
-    const totalAmount = cart.reduce(
-      (acc, item) => acc + item.price * item.quantity,
-      0
-    );
+    if (orderMode === "online") {
+      if (!customerName || !customerPhone || !deliveryAddress) {
+        alert("Please fill all delivery details.");
+        return;
+      }
+      if (!/^\d{10}$/.test(customerPhone.replace(/\D/g, ""))) {
+        alert("Please enter a valid 10-digit phone number.");
+        return;
+      }
+    }
+
     const orderDetails = cart
       .map((item) => {
         const portionLabel = item.portion === "half" ? " (Half)" : " (Full)";
@@ -318,22 +383,34 @@ const FastFoodCatalogue: React.FC = () => {
       })
       .join("\n");
 
-    const newOrderId = `RJ-${Math.floor(100000 + Math.random() * 900000)}`;
-    setOrderId(newOrderId);
+    const newOrderId = `FF-${Math.floor(100000 + Math.random() * 900000)}`;
 
-    const message = `*New Order - Raj Family Restaurant*\n\n*Order ID:* ${newOrderId}\n\n${orderDetails}\n\n*Total: ₹${totalAmount.toFixed(
-      2
-    )}*\n\nPlease confirm my order.`;
+    let message = `*New Order*\n\n*Order ID:* ${newOrderId}\n*Mode:* ${
+      orderMode === "online" ? "Delivery (Online)" : "Takeaway (Offline)"
+    }\n\n${orderDetails}\n\n*Subtotal: ₹${subtotal.toFixed(2)}*`;
+
+    if (orderMode === "online") {
+      message += `\n*Delivery Charge: ₹${deliveryCharge}*\n*Total: ₹${totalAmount.toFixed(
+        2
+      )}*\n\n*Customer Details:*\nName: ${customerName}\nPhone: ${customerPhone}\nAddress: ${deliveryAddress}`;
+    } else {
+      message += `\n*Total: ₹${totalAmount.toFixed(2)}*`;
+    }
+
+    message += `\n\nPlease confirm my order.`;
 
     window.open(
-      `https://wa.me/916200656377?text=${encodeURIComponent(message)}`,
+      `https://wa.me/917369068632?text=${encodeURIComponent(message)}`,
       "_blank"
     );
 
     setCart([]);
     localStorage.removeItem("fastfood_cart");
     setCartOpen(false);
-    setSuccessOpen(true);
+    setCustomerName("");
+    setCustomerPhone("");
+    setDeliveryAddress("");
+    setOrderMode("offline");
   };
 
   const currentCategoryName =
@@ -345,10 +422,7 @@ const FastFoodCatalogue: React.FC = () => {
     return true;
   });
 
-  const totalAmount = cart.reduce(
-    (acc, item) => acc + item.price * item.quantity,
-    0
-  );
+  const isCurrentCategoryLoading = loadingProductsByCat[activeCategory] ?? false;
 
   const getImageArray = (product: Product): string[] => {
     if (product.imageUrls && product.imageUrls.length > 0) {
@@ -370,10 +444,10 @@ const FastFoodCatalogue: React.FC = () => {
     });
   };
 
-  // Full page loader while categories load
+  // Full page loader
   if (loadingCategories) {
     return (
-      <section className="min-h-screen bg-gradient-to-b from-yellow-100 to-white flex flex-col items-center justify-center">
+      <section className="min-h-screen bg-linear-to-b from-orange-50 to-white flex flex-col items-center justify-center">
         <div className="text-center">
           <div className="w-20 h-20 border-8 border-yellow-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="mt-6 text-xl font-semibold text-gray-700">Loading menu...</p>
@@ -383,21 +457,21 @@ const FastFoodCatalogue: React.FC = () => {
   }
 
   return (
-    <section className="min-h-screen bg-linear-to-b from-yellow-50 to-white relative">
+    <section className="min-h-screen bg-linear-to-b from-orange-50 to-white relative ">
       {/* Header */}
-      <div className="flex flex-col items-center text-center py-2 bg-linear-to-r from-yellow-800 via-yellow-500 to-yellow-800">
-        <img src="logo.png" className="h-20 rounded-full shadow-lg" alt="Raj Family Restaurant" />
-        <h1 className="text-4xl md:text-6xl font-extrabold text-yellow-100 mt-2">
+      <div className="flex flex-col items-center text-center py-4  bg-linear-to-r from-yellow-800 via-yellow-500 to-yellow-800">
+        <img src="/logo.png" className="h-20 rounded-full" alt="Logo" />
+        <h1 className="text-3xl md:text-6xl font-extrabold text-yellow-400  ">
           Raj Family Restaurant
         </h1>
         <h2 className="text-2xl md:text-4xl font-bold text-white mt-2">
           Fast • Tasty • Fresh
         </h2>
-        <p className="text-black max-w-2xl mt-2 text-lg font-semibold">
-           Mob: 6200656377
+        <p className="text-black max-w-2xl mt-3 text-sm md:text-lg">
+          Mob: 6200656377
         </p>
-        <p className="text-yellow-50 max-w-2xl mt-1 text-sm md:text-md">
-          ~Accepting Online Orders : 10:00 AM - 9:00 PM~
+        <p className="text-yellow-50 max-w-2xl mt-1 text-xs md:text-md">
+          ~Accepting Online Order : 10:00 AM - 9:00 PM~
         </p>
       </div>
 
@@ -405,14 +479,18 @@ const FastFoodCatalogue: React.FC = () => {
       <div className="flex justify-center gap-3 py-4 bg-white shadow-sm sticky top-0 z-30">
         <Button
           variant={filter === "all" ? "default" : "outline"}
-          className={`flex items-center gap-2 ${filter === "all" ? "bg-yellow-600 hover:bg-yellow-700" : ""}`}
+          className={`flex items-center gap-2 ${
+            filter === "all" ? "bg-yellow-600 hover:bg-yellow-700" : ""
+          }`}
           onClick={() => setFilter("all")}
         >
           All
         </Button>
         <Button
           variant={filter === "veg" ? "default" : "outline"}
-          className={`flex items-center gap-2 ${filter === "veg" ? "bg-green-600 hover:bg-green-700" : ""}`}
+          className={`flex items-center gap-2 ${
+            filter === "veg" ? "bg-green-600 hover:bg-green-700" : ""
+          }`}
           onClick={() => setFilter("veg")}
         >
           <span className="w-4 h-4 border-2 border-green-600 bg-green-500 rounded-sm flex items-center justify-center">
@@ -422,7 +500,9 @@ const FastFoodCatalogue: React.FC = () => {
         </Button>
         <Button
           variant={filter === "nonveg" ? "default" : "outline"}
-          className={`flex items-center gap-2 ${filter === "nonveg" ? "bg-red-600 hover:bg-red-700" : ""}`}
+          className={`flex items-center gap-2 ${
+            filter === "nonveg" ? "bg-red-600 hover:bg-red-700" : ""
+          }`}
           onClick={() => setFilter("nonveg")}
         >
           <span className="w-4 h-4 border-2 border-red-600 bg-red-500 rounded-sm flex items-center justify-center">
@@ -433,36 +513,34 @@ const FastFoodCatalogue: React.FC = () => {
       </div>
 
       {/* Layout */}
-      <div className="flex flex-row w-full max-w-7xl mx-auto px-4 py-6 gap-6">
+      <div className="flex flex-row w-full max-w-7xl mx-auto px-2 py-6 gap-6">
         {/* Sidebar */}
-        <aside className="w-24 sm:w-40 md:w-60 sticky top-28 h-[calc(100vh-8rem)] overflow-y-auto bg-linear-to-r from-yellow-500 via-yellow-50 to-yellow-500 border-r rounded-xl shadow-sm p-1">
-          {loadingCategories
-            ? Array(6).fill(0).map((_, i) => <SkeletonCategory key={i} />)
-            : categories.map((cat) => (
-                <div
-                  key={cat.id}
-                  onClick={() => setActiveCategory(cat.id)}
-                  className={`flex flex-col items-center cursor-pointer rounded-xl px-10 py-2 mb-2 transition-all border ${
-                    activeCategory === cat.id
-                      ? "bg-orange-100 border-orange-400 shadow-lg"
-                      : "hover:bg-gray-50 border-transparent"
-                  }`}
-                >
-                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shadow-sm">
-                    <img
-                      src={cat.imageUrl || "/placeholder.svg"}
-                      alt={cat.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = "/placeholder.svg";
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs sm:text-sm font-semibold text-center mt-1 uppercase">
-                    {cat.name}
-                  </span>
-                </div>
-              ))}
+        <aside className="w-24 sm:w-40 md:w-60 sticky top-28 h-[calc(100vh-8rem)] overflow-y-auto bg-linear-to-r from-yellow-400 via-yellow-50 to-yellow-400 border-r rounded-xl shadow-sm p-1">
+          {categories.map((cat) => (
+            <div
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              className={`flex flex-col items-center cursor-pointer rounded-xl px-10 py-2 mb-2  transition-all border ${
+                activeCategory === cat.id
+                  ? "bg-orange-100 border-orange-400 shadow-lg"
+                  : "hover:bg-gray-50 border-transparent"
+              }`}
+            >
+              <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shadow-sm ">
+                <img
+                  src={cat.imageUrl || "/placeholder.svg"}
+                  alt={cat.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "/placeholder.svg";
+                  }}
+                />
+              </div>
+              <span className="text-xs sm:text-sm font-semibold text-center mt-1 uppercase">
+                {cat.name}
+              </span>
+            </div>
+          ))}
         </aside>
 
         {/* Products Grid */}
@@ -470,29 +548,28 @@ const FastFoodCatalogue: React.FC = () => {
           <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 flex items-center gap-3">
             {currentCategoryName}
             <span className="text-sm font-normal text-gray-500">
-              ({currentProducts.length} items)
+              ({isCurrentCategoryLoading ? "Loading..." : currentProducts.length} items)
             </span>
           </h2>
 
-          {loadingProducts ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {Array(8).fill(0).map((_, i) => (
-                <Card key={i} className="overflow-hidden rounded-2xl bg-white shadow-md">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {isCurrentCategoryLoading ? (
+              // Show 12 skeleton cards while loading current category
+              Array(12).fill(0).map((_, i) => (
+                <Card key={`skeleton-${i}`} className="overflow-hidden rounded-2xl bg-white shadow-md">
                   <SkeletonCard />
                 </Card>
-              ))}
-            </div>
-          ) : currentProducts.length === 0 ? (
-            <div className="text-center py-20">
-              <div className="text-gray-400 text-6xl mb-4">Empty Plate</div>
-              <p className="text-xl font-medium text-gray-600">No food available in this category</p>
-              <p className="text-gray-500 mt-2">Try selecting another category or come back later!</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {currentProducts.map((product) => {
+              ))
+            ) : currentProducts.length === 0 ? (
+              <div className="col-span-full text-center py-16 text-gray-500">
+                <p className="text-lg">No items in this category yet.</p>
+              </div>
+            ) : (
+              currentProducts.map((product) => {
                 const firstImage =
-                  product.imageUrls?.[0] || product.imageUrl || "/placeholder.svg";
+                  product.imageUrls?.[0] ||
+                  product.imageUrl ||
+                  "/placeholder.svg";
                 return (
                   <Card
                     key={product.id}
@@ -501,7 +578,7 @@ const FastFoodCatalogue: React.FC = () => {
                       setTempPortion(product.halfPrice ? "full" : "full");
                       setTempQuantity(1);
                     }}
-                    className="overflow-hidden rounded-2xl bg-white shadow-lg hover:shadow-xl transition-all cursor-pointer flex flex-col border relative"
+                    className="overflow-hidden rounded-2xl bg-white shadow-lg shadow-amber-00 hover:shadow-xl transition-all cursor-pointer flex flex-col border relative"
                   >
                     <div className="absolute top-2 left-2 z-10">
                       <div
@@ -543,13 +620,13 @@ const FastFoodCatalogue: React.FC = () => {
                     </div>
                   </Card>
                 );
-              })}
-            </div>
-          )}
+              })
+            )}
+          </div>
         </main>
       </div>
 
-      {/* Product Dialog, Cart, Success — fully functional & identical to previous version */}
+      {/* Product Dialog */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
         {selectedProduct && (
           <DialogContent className="max-w-full w-full h-full md:max-w-2xl md:h-auto md:max-h-[60vh] rounded-none md:rounded-2xl p-0 overflow-hidden flex flex-col">
@@ -650,13 +727,13 @@ const FastFoodCatalogue: React.FC = () => {
 
                     <div className="mt-2 flex items-center gap-6">
                       <div className="ml-1">
-                      <p className="text-3xl font-bold text-green-600">
-                        ₹
-                        {tempPortion === "half"
-                          ? (selectedProduct.halfPrice || selectedProduct.price / 2) * tempQuantity
-                          : selectedProduct.price * tempQuantity}
-                      </p>
-                    </div>
+                        <p className="text-3xl font-bold text-green-600">
+                          ₹
+                          {tempPortion === "half"
+                            ? (selectedProduct.halfPrice || selectedProduct.price / 2) * tempQuantity
+                            : selectedProduct.price * tempQuantity}
+                        </p>
+                      </div>
                       <p className="text-xs font-medium text-gray-700">Order Quantity:</p>
                       <div className="flex items-center border rounded-lg">
                         <Button
@@ -678,7 +755,6 @@ const FastFoodCatalogue: React.FC = () => {
                         </Button>
                       </div>
                     </div>
-                    
 
                     <div className="flex flex-col sm:flex-row gap-3 mt-5 pt-2 pb-2 md:pb-0">
                       <Button
@@ -699,7 +775,7 @@ const FastFoodCatalogue: React.FC = () => {
       {/* Floating Cart */}
       <div
         onClick={() => setCartOpen(true)}
-        className="fixed bottom-6 right-6 bg-yellow-600 hover:bg-yellow-700 text-white p-4 rounded-full shadow-lg cursor-pointer transition-all z-40"
+        className="fixed bottom-6 right-6 mb-12 bg-yellow-600 hover:bg-yellow-700 text-white p-4 border-white border-2 rounded-full shadow-lg cursor-pointer transition-all z-40 "
       >
         <ShoppingCart size={26} />
         {cart.length > 0 && (
@@ -709,7 +785,7 @@ const FastFoodCatalogue: React.FC = () => {
         )}
       </div>
 
-      {/* Cart & Success Dialogs - unchanged */}
+      {/* Cart Dialog */}
       <Dialog open={cartOpen} onOpenChange={setCartOpen}>
         <DialogContent className="max-w-lg rounded-2xl p-6">
           <DialogHeader>
@@ -717,10 +793,12 @@ const FastFoodCatalogue: React.FC = () => {
               Your Cart ({cart.reduce((s, i) => s + i.quantity, 0)} items)
             </DialogTitle>
           </DialogHeader>
+
           {cart.length === 0 ? (
             <p className="text-gray-500 text-center py-8">Your cart is empty.</p>
           ) : (
             <div className="flex flex-col gap-4 mt-3 max-h-96 overflow-y-auto">
+              {/* Cart Items */}
               {cart.map((item) => {
                 const firstImage = item.imageUrls?.[0] || item.imageUrl || "/placeholder.svg";
                 return (
@@ -731,9 +809,7 @@ const FastFoodCatalogue: React.FC = () => {
                           src={firstImage}
                           alt={item.name}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = "/placeholder.svg";
-                          }}
+                          onError={(e) => { e.currentTarget.src = "/placeholder.svg"; }}
                         />
                         <div className={`absolute top-1 left-1 w-4 h-4 border rounded-sm flex items-center justify-center ${
                           item.isVeg ? "border-green-600 bg-green-500" : "border-red-600 bg-red-500"
@@ -768,12 +844,102 @@ const FastFoodCatalogue: React.FC = () => {
                 );
               })}
 
-              <div className="flex justify-between font-bold text-lg text-gray-800 mt-4 pt-3 border-t">
-                <span>Total:</span>
-                <span>₹{totalAmount.toFixed(2)}</span>
+              {/* Order Type */}
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-sm font-semibold mb-3">Order Type:</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={orderMode === "offline" ? "default" : "outline"}
+                    className={orderMode === "offline" ? "bg-orange-600 hover:bg-orange-700" : ""}
+                    onClick={() => setOrderMode("offline")}
+                  >
+                    <Store className="w-4 h-4 mr-2" />
+                    Takeaway
+                  </Button>
+                  <Button
+                    variant={orderMode === "online" ? "default" : "outline"}
+                    className={orderMode === "online" ? "bg-blue-600 hover:bg-blue-700" : ""}
+                    onClick={() => setOrderMode("online")}
+                  >
+                    <Bike className="w-4 h-4 mr-2" />
+                    Delivery
+                  </Button>
+                </div>
               </div>
 
-              <Button className="mt-3 bg-green-600 hover:bg-green-700 text-white" onClick={handleProceedToBuy}>
+              {/* Delivery Form - Only for Online */}
+              {orderMode === "online" && (
+                <div className="mt-4 space-y-4 border-t pt-4">
+                  <div>
+                    <Label htmlFor="name">Your Name</Label>
+                    <Input
+                      id="name"
+                      placeholder="Enter your name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      maxLength={10}
+                      placeholder="10-digit mobile number"
+                      value={customerPhone}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        setCustomerPhone(value);
+                      }}
+                      className={customerPhone.length > 0 && customerPhone.length !== 10 ? "border-red-500" : ""}
+                    />
+                    {customerPhone.length > 0 && customerPhone.length !== 10 && (
+                      <p className="text-xs text-red-600 mt-1">Please enter exactly 10 digits</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="address">Delivery Address</Label>
+                    <Textarea
+                      id="address"
+                      placeholder="Full address with landmark"
+                      rows={3}
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Pricing Summary */}
+              <div className="mt-6 pt-4 border-t space-y-3">
+                <div className="flex justify-between text-base">
+                  <span className="text-gray-700">Subtotal</span>
+                  <span className="font-semibold">₹{subtotal.toFixed(2)}</span>
+                </div>
+
+                {orderMode === "online" && (
+                  <div className="flex justify-between text-base">
+                    <span className="text-gray-700 flex items-center gap-2">
+                      Delivery Charge <Bike className="w-4 h-4 text-blue-600" />
+                    </span>
+                    <span className="font-semibold text-blue-600">+ ₹{deliveryCharge}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-xl font-bold text-gray-800 pt-3 border-t">
+                  <span>Total Amount</span>
+                  <span className="text-green-600">₹{totalAmount.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Place Order Button */}
+              <Button
+                className="mt-4 bg-green-600 hover:bg-green-700 text-white text-lg py-6 w-full font-bold"
+                onClick={handleProceedToBuy}
+                disabled={orderMode === "online" && (customerPhone.length !== 10 || !customerName || !deliveryAddress)}
+              >
                 Place Order via WhatsApp
               </Button>
             </div>
@@ -781,22 +947,33 @@ const FastFoodCatalogue: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
-        <DialogContent className="max-w-sm text-center rounded-2xl p-8">
-          <CheckCircle className="text-green-500 w-16 h-16 mx-auto mb-3" />
-          <DialogTitle className="text-xl font-bold text-gray-800 mb-2">Order Placed!</DialogTitle>
-          <p className="text-gray-600">
-            Your order <span className="font-semibold text-red-600">#{orderId}</span> has been sent via WhatsApp.
-          </p>
-          <Button className="mt-5 bg-red-600 hover:bg-red-700 text-white" onClick={() => setSuccessOpen(false)}>
-            Done
-          </Button>
-        </DialogContent>
-      </Dialog> */}
-
-      <div className="flex space-x-1 border-t border-gray-300 py-3 justify-center text-center text-sm text-gray-500">
-        Developed by <a href="https://shibim.com/" target="_blank" className="mx-1 font-bold text-yellow-700">SHIBIM</a>
+      {/* === TOTAL VISITS COUNTER AT BOTTOM === */}
+      <div className=" bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-black/70 text-white  z-50 backdrop-blur-sm">
+        <div className="flex items-center justify-center gap-3 text-sm md:text-lg font-semibold">
+          <Eye className="w-5 h-5 text-yellow-400" />
+          <span>Total Visits:</span>
+          <span className="text-yellow-400 text-lg md:text-2xl font-bold">
+            {totalViews.toLocaleString()}
+          </span>
+          <span className="hidden md:inline text-gray-300">people love our menu!</span>
+        </div>
       </div>
+
+      {/* Footer */}
+      <footer className=" bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 z-50">
+        <div className="py-1 text-center text-xs text-gray-600 font-medium">
+          Developed by{" "}
+          <a
+            href="https://shibim.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-yellow-700 hover:text-yellow-800 transition-colors"
+          >
+            SHIBIM
+          </a>
+        </div>
+      </footer>
+
     </section>
   );
 };

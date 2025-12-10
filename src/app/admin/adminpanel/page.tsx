@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   collection,
   addDoc,
@@ -13,6 +13,7 @@ import {
   query,
   where,
   getDocs,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,18 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
-import { Pencil, Eye, Trash, Plus, Upload, X, LogOut } from "lucide-react";
+import { Search } from "lucide-react";
+import {
+  Pencil,
+  Eye,
+  Trash,
+  Plus,
+  Upload,
+  X,
+  LogOut,
+  Settings,
+  Bike,
+} from "lucide-react";
 
 /* ==================== Types ==================== */
 interface Category {
@@ -58,6 +70,37 @@ interface Product {
   isVeg: boolean;
 }
 
+/* ==================== Skeleton Row ==================== */
+const ProductSkeletonRow = () => (
+  <tr className="border-b animate-pulse">
+    <td className="px-3 py-4">
+      <div className="h-4 bg-gray-200 rounded w-32"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="h-4 bg-gray-200 rounded w-16"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="h-4 bg-gray-200 rounded w-16"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="w-6 h-6 bg-gray-200 rounded mx-auto"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="h-4 bg-gray-200 rounded w-12"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="w-12 h-12 bg-gray-200 rounded mx-auto"></div>
+    </td>
+    <td className="px-3 py-4">
+      <div className="flex gap-2 justify-end">
+        <div className="w-8 h-8 bg-gray-200 rounded"></div>
+        <div className="w-8 h-8 bg-gray-200 rounded"></div>
+        <div className="w-8 h-8 bg-gray-200 rounded"></div>
+      </div>
+    </td>
+  </tr>
+);
+
 /* ==================== Helpers ==================== */
 const formatName = (raw: string) =>
   raw
@@ -66,14 +109,6 @@ const formatName = (raw: string) =>
     .split(" ")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(" ");
-const DEFAULT_CATEGORIES = [
-  "Burgers",
-  "Pizzas",
-  "Rolls",
-  "Sandwiches",
-  "Fries & Sides",
-  "Beverages",
-];
 
 /* ==================== Image Compression ==================== */
 const compressImage = (file: File): Promise<string> => {
@@ -117,7 +152,7 @@ const compressImage = (file: File): Promise<string> => {
   });
 };
 
-/* ==================== Drag & Drop Upload Component ==================== */
+/* ==================== Drag & Drop Upload ==================== */
 const DragDropUpload: React.FC<{
   previews: string[];
   onImagesChange: (newImages: string[]) => void;
@@ -182,218 +217,338 @@ const DragDropUpload: React.FC<{
   );
 };
 
-/* ==================== Main Component ==================== */
+/* ==================== Delivery Charge Settings ==================== */
+const DeliveryChargeSettings: React.FC = () => {
+  const [deliveryCharge, setDeliveryCharge] = useState<number>(50);
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempValue, setTempValue] = useState<string>("");
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "settings", "deliveryCharge"), (snap) => {
+      if (snap.exists() && typeof snap.data()?.amount === "number") {
+        setDeliveryCharge(snap.data()!.amount);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSave = async () => {
+    const value = parseInt(tempValue);
+    if (isNaN(value) || value < 0) {
+      alert("Please enter a valid amount (greater than or equal to 0)");
+      return;
+    }
+    try {
+      await setDoc(doc(db, "settings", "deliveryCharge"), { amount: value }, { merge: true });
+      setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update delivery charge");
+    }
+  };
+
+  return (
+    <Card className="mb-8 p-6 bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-200 shadow-lg">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Bike className="h-12 w-12 text-emerald-600" />
+          <div>
+            <h3 className="text-2xl font-bold text-gray-800">Delivery Charge</h3>
+            <p className="text-sm text-gray-600">This amount is added to every online (delivery) order</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {isEditing ? (
+            <>
+              <Input
+                type="number"
+                value={tempValue}
+                onChange={(e) => setTempValue(e.target.value)}
+                className="w-32 text-xl font-bold text-emerald-700"
+                autoFocus
+                placeholder="50"
+              />
+              <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">
+                Save
+              </Button>
+              <Button variant="outline" onClick={() => setIsEditing(false)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="text-5xl font-extrabold text-emerald-700">₹{deliveryCharge}</span>
+              <Button
+                variant="outline"
+                className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => {
+                  setTempValue(deliveryCharge.toString());
+                  setIsEditing(true);
+                }}
+              >
+                <Pencil className="h-5 w-5 mr-2" />
+                Change
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+/* ==================== Main Admin Panel ==================== */
 const AdminPanel: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [productsByCat, setProductsByCat] = useState<Record<string, Product[]>>({});
+  const [loadingProductsByCat, setLoadingProductsByCat] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
-  /* ---------- Clean-up junk + seed defaults ---------- */
+  // Flatten all products for search
+  const allProducts = useMemo(() => {
+    const list: (Product & { categoryId: string; categoryName?: string })[] = [];
+    categories.forEach((cat) => {
+      const prods = productsByCat[cat.id] || [];
+      prods.forEach((p) => {
+        list.push({ ...p, categoryId: cat.id, categoryName: cat.name });
+      });
+    });
+    return list;
+  }, [categories, productsByCat]);
+
+  // Filtered products based on search
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return allProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q)
+    );
+  }, [allProducts, searchQuery]);
+
+  // Only cleanup junk categories (no default seeding)
   useEffect(() => {
-    const cleanupAndSeed = async () => {
-      const junkNames = ["Cars", "Tiles", "Fruits", "Vegetables"];
+    const cleanupJunk = async () => {
+      const junkNames = ["Foods"];
       for (const bad of junkNames) {
         const q = query(collection(db, "categories"), where("name", "==", bad));
         const snap = await getDocs(q);
         for (const d of snap.docs) await deleteDoc(d.ref);
       }
-      const snap = await getDocs(collection(db, "categories"));
-      if (snap.empty) {
-        for (const name of DEFAULT_CATEGORIES) {
-          await addDoc(collection(db, "categories"), {
-            name,
-            imageUrl: "",
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
     };
-    cleanupAndSeed();
+    cleanupJunk();
   }, []);
 
-  /* ---------- Fetch Categories ---------- */
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "categories"),
-      (snap) => {
-        const fetched: Category[] = [];
-        snap.docs.forEach((d) => {
-          const data = d.data();
-          const name = data.name ? formatName(data.name) : undefined;
-          fetched.push({
-            id: d.id,
-            name,
-            imageUrl: data.imageUrl ?? undefined,
-            createdAt: data.createdAt ?? undefined,
-          });
+    const unsub = onSnapshot(collection(db, "categories"), (snap) => {
+      const fetched: Category[] = [];
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const name = data.name ? formatName(data.name) : undefined;
+        fetched.push({
+          id: d.id,
+          name,
+          imageUrl: data.imageUrl ?? undefined,
+          createdAt: data.createdAt ?? undefined,
         });
-        const sorted = fetched.sort((a, b) => {
-          if (!a.createdAt || !b.createdAt) return 0;
-          return b.createdAt.toMillis() - a.createdAt.toMillis();
-        });
-        setCategories(sorted);
-      },
-      (err) => {
-        console.error(err);
-        alert("Failed to load categories.");
-      }
-    );
+      });
+      const sorted = fetched.sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+      setCategories(sorted);
+    });
     return () => unsub();
   }, []);
 
-  /* ---------- Fetch Products ---------- */
   useEffect(() => {
     const unsubs: (() => void)[] = [];
     categories.forEach((cat) => {
-      const q = collection(db, "categories", cat.id, "products");
-      const unsub = onSnapshot(
-        q,
-        (snap) => {
-          const prods: Product[] = snap.docs.map((d) => {
-            const data = d.data();
-            const imageUrls = data.imageUrls || (data.imageUrl ? [data.imageUrl] : []);
-            return {
-              id: d.id,
-              name: data.name ?? "Unnamed",
-              price: data.price ?? 0,
-              halfPrice: data.halfPrice ?? undefined,
-              quantity: data.quantity ?? "1",
-              description: data.description ?? undefined,
-              imageUrl: data.imageUrl ?? undefined,
-              imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
-              createdAt: data.createdAt ?? undefined,
-              isVeg: data.isVeg ?? true,
-            };
-          });
-          const sorted = prods.sort((a, b) => {
-            if (!a.createdAt || !b.createdAt) return 0;
-            return b.createdAt.toMillis() - a.createdAt.toMillis();
-          });
-          setProductsByCat((p) => ({ ...p, [cat.id]: sorted }));
-        },
-        (e) => console.error(e)
-      );
+      setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: true }));
+
+      const unsub = onSnapshot(collection(db, "categories", cat.id, "products"), (snap) => {
+        const prods: Product[] = snap.docs.map((d) => {
+          const data = d.data();
+          const imageUrls = data.imageUrls || (data.imageUrl ? [data.imageUrl] : []);
+          return {
+            id: d.id,
+            name: data.name ?? "Unnamed",
+            price: data.price ?? 0,
+            halfPrice: data.halfPrice ?? undefined,
+            quantity: data.quantity ?? "1",
+            description: data.description ?? undefined,
+            imageUrl: data.imageUrl ?? undefined,
+            imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+            createdAt: data.createdAt ?? undefined,
+            isVeg: data.isVeg ?? true,
+          };
+        });
+        const sorted = prods.sort((a, b) => {
+          if (!a.createdAt || !b.createdAt) return 0;
+          return b.createdAt.toMillis() - a.createdAt.toMillis();
+        });
+        setProductsByCat((prev) => ({ ...prev, [cat.id]: sorted }));
+        setLoadingProductsByCat(prev => ({ ...prev, [cat.id]: false }));
+      });
       unsubs.push(unsub);
     });
     return () => unsubs.forEach((u) => u());
   }, [categories]);
 
-  /* ---------- Logout Button ---------- */
   const handleLogout = () => {
     sessionStorage.removeItem("adminAuth");
     window.location.href = "/admin/login";
   };
 
-  /* ---------- UI ---------- */
   return (
     <section className="min-h-screen bg-linear-to-b from-yellow-700 to-yellow-100 p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-yellow-50">
-            Admin Panel - Raj Restaurant
-          </h1>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-yellow-50 hover:text-white"
-            onClick={handleLogout}
-          >
-            <LogOut className="mr-1 h-4 w-4" /> Logout
+          <h1 className="text-3xl md:text-4xl font-bold text-yellow-50">Admin - Raj Restro</h1>
+          <Button variant="ghost" size="sm" className="text-yellow-50 hover:text-yellow-900" onClick={handleLogout}>
+            <LogOut className="mr-2 h-5 w-5" /> Logout
           </Button>
         </div>
 
-        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-          <h2 className="text-2xl font-semibold text-yellow-50">Menu Categories</h2>
-          <AddCategoryDialog />
+        <DeliveryChargeSettings />
+
+        <div className="mb-8">
+          <div className="relative max-w-2xl mx-auto">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+            <Input
+              type="text"
+              placeholder="Search product by name or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-4 py-4 text-md bg-white/90 backdrop-blur-sm border-yellow-300 focus:border-yellow-500 shadow-lg"
+            />
+          </div>
         </div>
 
-        <Accordion type="single" collapsible className="space-y-4">
-          {categories.map((cat) => (
-            <AccordionItem
-              key={cat.id}
-              value={cat.id}
-              className="border rounded-xl shadow-sm bg-white overflow-hidden"
-            >
-              <AccordionTrigger className="px-4 py-3 hover:bg-orange-50 transition-colors">
-                <div className="flex items-center justify-between w-full pr-4">
-                  <div className="flex items-center gap-3">
-                    {cat.imageUrl && (
-                      <img
-                        src={cat.imageUrl}
-                        alt={cat.name || "Category"}
-                        className="w-10 h-10 rounded-lg object-cover"
-                      />
-                    )}
-                    <span className="text-lg font-medium text-gray-800">
-                      {cat.name || "Uncategorized"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <EditCategoryDialog category={cat} />
-                    <DeleteDialog
-                      title="Delete Category"
-                      description="All products will be deleted permanently."
-                      onConfirm={() => deleteDoc(doc(db, "categories", cat.id))}
-                    >
-                      <Button variant="destructive" size="icon" className="h-8 w-8">
-                        <Trash size={16} />
-                      </Button>
-                    </DeleteDialog>
-                  </div>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4 bg-gray-50">
-                <div className="flex justify-between items-center mb-4 mt-2">
-                  <h3 className="text-lg font-semibold text-gray-700">Menu Items</h3>
-                  <AddProductDialog categoryId={cat.id} />
-                </div>
-                <Card className="overflow-x-auto">
-                  <table className="w-full min-w-[650px] text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        {["Name", "Price", "Half", "Veg", "Qty", "Image", "Actions"].map(
-                          (h) => (
-                            <th
-                              key={h}
-                              className="px-3 py-2 text-left font-medium text-gray-700"
-                            >
+        {/* Search Results with Full Edit/Delete */}
+        {searchQuery.trim() ? (
+          <div className="mb-8">
+            <Card className="bg-white/95 backdrop-blur-sm shadow-xl">
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                  Search Results {filteredProducts.length > 0 && `(${filteredProducts.length})`}
+                </h2>
+                {filteredProducts.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No products found matching "{searchQuery}"</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[650px] text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          {["Name", "Price", "Half", "Veg", "Qty", "Image", "Actions"].map((h) => (
+                            <th key={h} className="px-3 py-2 text-left font-medium text-gray-700">
                               {h}
                             </th>
-                          )
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(productsByCat[cat.id] || []).map((p) => (
-                        <ProductRow key={p.id} categoryId={cat.id} product={p} />
-                      ))}
-                      {!(productsByCat[cat.id]?.length) && (
-                        <tr>
-                          <td colSpan={7} className="text-center py-6 text-gray-500">
-                            No items yet. Add one!
-                          </td>
+                          ))}
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </Card>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-
-        {categories.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-lg">No categories found.</p>
-            <p className="text-sm mt-2">Adding default fast food categories…</p>
+                      </thead>
+                      <tbody>
+                        {filteredProducts.map((p) => (
+                          <ProductRow
+                            key={p.id}
+                            categoryId={p.categoryId}
+                            product={p}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
+        ) : (
+          <>
+            <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+              <h2 className="text-2xl font-semibold text-yellow-50">Menu Categories</h2>
+              <AddCategoryDialog />
+            </div>
+
+            <Accordion type="single" collapsible className="space-y-4">
+              {categories.map((cat) => (
+                <AccordionItem key={cat.id} value={cat.id} className="border rounded-xl shadow-sm bg-white overflow-hidden">
+                  <AccordionTrigger className="px-4 py-3 hover:bg-orange-50 transition-colors">
+                    <div className="flex items-center justify-between w-full pr-4">
+                      <div className="flex items-center gap-3">
+                        {cat.imageUrl && (
+                          <img src={cat.imageUrl} alt={cat.name} className="w-10 h-10 rounded-lg object-cover" />
+                        )}
+                        <span className="text-lg font-medium text-gray-800">{cat.name || "Uncategorized"}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <EditCategoryDialog category={cat} />
+                        <DeleteDialog
+                          title="Delete Category"
+                          description="All products will be deleted permanently."
+                          onConfirm={() => deleteDoc(doc(db, "categories", cat.id))}
+                        >
+                          <Button variant="destructive" size="icon" className="h-8 w-8">
+                            <Trash size={16} />
+                          </Button>
+                        </DeleteDialog>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4 bg-gray-50">
+                    <div className="flex justify-between items-center mb-4 mt-2">
+                      <h3 className="text-lg font-semibold text-gray-700">Menu Items</h3>
+                      <AddProductDialog categoryId={cat.id} />
+                    </div>
+                    <Card className="overflow-x-auto">
+                      <table className="w-full min-w-[650px] text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            {["Name", "Price", "Half", "Veg", "Qty", "Image", "Actions"].map((h) => (
+                              <th key={h} className="px-3 py-2 text-left font-medium text-gray-700">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loadingProductsByCat[cat.id] ? (
+                            Array(6).fill(0).map((_, i) => <ProductSkeletonRow key={i} />)
+                          ) : (productsByCat[cat.id] || []).length > 0 ? (
+                            (productsByCat[cat.id] || []).map((p) => (
+                              <ProductRow key={p.id} categoryId={cat.id} product={p} />
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={7} className="text-center py-6 text-gray-500">
+                                No items yet. Add one!
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </Card>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+
+            {categories.length === 0 && (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 border-4 border-yellow-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-lg text-yellow-50">No categories yet. Create your first one!</p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
   );
 };
 
-/* ==================== Dialogs (unchanged) ==================== */
-/* ---- Add Category ---- */
+/* ==================== All Dialogs (Exactly as before) ==================== */
+
 const AddCategoryDialog: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -413,10 +568,18 @@ const AddCategoryDialog: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!name.trim()) {
+      alert("Category name is required.");
+      return;
+    }
+    if (!image) {
+      alert("Category image is required.");
+      return;
+    }
     try {
       await addDoc(collection(db, "categories"), {
-        name: name.trim() ? formatName(name) : undefined,
-        imageUrl: image || "",
+        name: formatName(name),
+        imageUrl: image,
         createdAt: serverTimestamp(),
       });
       setOpen(false);
@@ -446,7 +609,7 @@ const AddCategoryDialog: React.FC = () => {
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label htmlFor="cat-name">Name</Label>
+            <Label htmlFor="cat-name">Name *</Label>
             <Input
               id="cat-name"
               value={name}
@@ -455,14 +618,14 @@ const AddCategoryDialog: React.FC = () => {
             />
           </div>
           <div>
-            <Label htmlFor="cat-image">Image (auto-compressed less than 500 KB)</Label>
+            <Label htmlFor="cat-image">Category Image * (required)</Label>
             <Input id="cat-image" type="file" accept="image/*" onChange={handleImage} />
             {preview && (
               <div className="mt-3">
                 <img
                   src={preview}
                   alt="Preview"
-                  className="w-full h-40 object-cover rounded-lg"
+                  className="w-full h-40 object-cover rounded-lg border-2 border-green-500"
                 />
                 <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo}</p>
               </div>
@@ -477,7 +640,6 @@ const AddCategoryDialog: React.FC = () => {
   );
 };
 
-/* ---- Edit Category ---- */
 interface EditCategoryDialogProps {
   category: Category;
 }
@@ -500,10 +662,18 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
   };
 
   const handleSave = async () => {
+    if (!name.trim()) {
+      alert("Category name is required.");
+      return;
+    }
+    if (!image) {
+      alert("Category image is required.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "categories", category.id), {
-        name: name.trim() ? formatName(name) : undefined,
-        imageUrl: image || "",
+        name: formatName(name),
+        imageUrl: image,
       });
       setOpen(false);
     } catch (e) {
@@ -525,26 +695,27 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label>Name</Label>
+            <Label>Name *</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Leave blank to remove name"
+              placeholder="Category name"
             />
           </div>
           <div>
-            <Label>Image</Label>
-            <Input type="file" accept="image/*" onChange={handleImage} />
+            <Label>Category Image * (required)</Label>
             {preview && (
-              <div className="mt-3">
+              <div className="mt-2 mb-3">
                 <img
                   src={preview}
-                  alt="Preview"
-                  className="w-full h-40 object-cover rounded-lg"
+                  alt="Current preview"
+                  className="w-full h-40 object-cover rounded-lg border"
                 />
-                <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo}</p>
+                <p className="text-xs text-gray-500 text-center mt-1">{sizeInfo || "Current image"}</p>
               </div>
             )}
+            <Input type="file" accept="image/*" onChange={handleImage} />
+            <p className="text-xs text-gray-500 mt-1">Upload new image to replace current one</p>
           </div>
         </div>
         <DialogFooter>
@@ -555,7 +726,6 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category }) => 
   );
 };
 
-/* ---- Add Product Dialog ---- */
 interface AddProductDialogProps {
   categoryId: string;
 }
@@ -646,7 +816,7 @@ const AddProductDialog: React.FC<AddProductDialogProps> = ({ categoryId }) => {
                 type="number"
                 value={halfPrice ?? ""}
                 onChange={(e) => setHalfPrice(e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="Enter Price of "
+                placeholder="Enter Price of Half"
                 disabled={isLoading}
               />
             </div>
@@ -685,7 +855,6 @@ const AddProductDialog: React.FC<AddProductDialogProps> = ({ categoryId }) => {
             />
           </div>
 
-          {/* IMAGE SECTION */}
           <div>
             <Label>Images (auto-compressed less than 500 KB each)</Label>
             {previews.length > 0 && (
@@ -749,7 +918,6 @@ const AddProductDialog: React.FC<AddProductDialogProps> = ({ categoryId }) => {
   );
 };
 
-/* ---- Edit Product Dialog ---- */
 interface EditProductDialogProps {
   categoryId: string;
   product: Product;
@@ -895,7 +1063,6 @@ const EditProductDialog: React.FC<EditProductDialogProps> = ({
   );
 };
 
-/* ---- Product Row ---- */
 interface ProductRowProps {
   categoryId: string;
   product: Product;
@@ -934,7 +1101,7 @@ const ProductRow: React.FC<ProductRowProps> = ({ categoryId, product }) => {
               className="w-12 h-12 object-cover rounded"
             />
             {imageCount > 1 && (
-              <span className="absolute -top-1 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                 {imageCount}
               </span>
             )}
@@ -984,7 +1151,6 @@ const ProductRow: React.FC<ProductRowProps> = ({ categoryId, product }) => {
   );
 };
 
-/* ---- View Product Dialog ---- */
 interface ViewProductDialogProps {
   product: Product;
   onClose: () => void;
@@ -1028,7 +1194,6 @@ const ViewProductDialog: React.FC<ViewProductDialogProps> = ({ product, onClose 
   );
 };
 
-/* ---- Delete Dialog ---- */
 interface DeleteDialogProps {
   title: string;
   description: string;
