@@ -30,7 +30,7 @@ export default function AdminLogin() {
     <section className="min-h-screen bg-linear-to-b from-yellow-700 to-yellow-100 flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-8 shadow-xl bg-white/95">
         <h1 className="text-3xl font-bold text-center text-yellow-700 mb-6">
-          #WTF Admin Login
+          Admin Login
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-5">
